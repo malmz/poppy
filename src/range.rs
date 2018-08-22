@@ -9,6 +9,7 @@ pub struct Decoder<'a> {
     cache_raw_len: usize,
     value: u32,
     range: u32,
+    scale_cache: u32,
 }
 
 impl<'a> Decoder<'a> {
@@ -22,20 +23,21 @@ impl<'a> Decoder<'a> {
             cache_raw_len: 0,
             value: (127 - (current>>1)).into(),
             range: 128,
+            scale_cache: 0,
         };
         val.normalize();
         val
     }
 
     pub fn decode(&mut self, total: u16) -> u16 {
-        let scale = self.range / u32::from(total);
-        total - min(self.value / scale + 1, u32::from(total)) as u16
+        self.scale_cache = self.range / u32::from(total);
+        total - min(self.value / self.scale_cache + 1, u32::from(total)) as u16
     }
 
     pub fn decode_bin(&mut self, total_bits: u16) -> u16 {
-        let scale = self.range>>total_bits;
-        if 1<<total_bits >= self.value / scale + 1 {
-            (1<<total_bits) - (self.value / scale + 1) as u16
+        self.scale_cache = self.range>>total_bits;
+        if 1<<total_bits >= self.value / self.scale_cache + 1 {
+            (1<<total_bits) - (self.value / self.scale_cache + 1) as u16
         } else {
             0
         }
@@ -95,18 +97,28 @@ impl<'a> Decoder<'a> {
         ret
     }
 
-    pub fn decode_uint(&mut self, total: u32) -> u32 {
+    pub fn decode_uniform(&mut self, total: u32) -> u32 {
         assert!(total>1);
-        let total_bits = ilog(total);
-        unimplemented!()
+        let total_bits = ilog(total-1);
+        if total_bits <= 8 {
+            let dec = self.decode(total as u16);
+            self.update(dec, dec + 1, total as u16);
+            dec as u32
+        } else {
+            let upper = ((total - 1)>>(total_bits - 8)) + 1;
+            let dec = self.decode(upper as u16);
+            self.update(dec, dec + 1, upper as u16);
+            let val = (dec as u32)<<(total_bits - 8) | self.decode_bits((total_bits - 8) as usize);
+            min(val, total - 1) //TODO: Packet loss concealment
+        }
     }
 
-    pub fn update(&mut self, scale: u16, low: u16, high: u16, total: u16) {
-        self.value -= (scale * (total - high)) as u32;
+    pub fn update(&mut self, low: u16, high: u16, total: u16) {
+        self.value -= self.scale_cache * (total - high) as u32;
         self.range = if low > 0 {
-            (scale * (high - low)).into()
+            self.scale_cache * (high - low) as u32
         } else {
-            self.range - u32::from(scale * (total - high))
+            self.range - self.scale_cache * (total - high) as u32
         };
         self.normalize();
     }
