@@ -1,0 +1,10 @@
+[package]
+name = "poppy"
+version = "0.1.0"
+authors = ["Carl Malmz <callem217@gmail.com>"]
+
+[dependencies]
+hound = "3.4.0"
+
+[dependencies.opus]
+path = "../opus"
