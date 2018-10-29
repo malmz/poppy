@@ -6,6 +6,7 @@ use ::common::types::{
     FrameSize,
     Channels,
 };
+use ::common::util::div_rem;
 
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -166,6 +167,22 @@ impl<'a> Packet<'a> {
             data: self.data,
         }
     }
+
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    pub fn bandwidth(&self) -> Bandwidth {
+        self.bandwidth
+    }
+
+    pub fn channels(&self) -> Channels {
+        self.channels
+    }
+
+    pub fn frame_size(&self) -> FrameSize {
+        self.frame_size
+    }
 }
 
 fn length(data: &[u8]) -> Result<(NonZeroU16, &[u8]), PacketErrorKind> {
@@ -200,13 +217,6 @@ fn length_unchecked(data: &[u8]) -> (usize, &[u8]) {
         (frame_size_two * 4 + frame_size_one, &data[2..])
     }
 }
-
-fn div_rem<T: ::std::ops::Div<Output=T> + ::std::ops::Rem<Output=T> + Copy>(x: T, y: T) -> (T, T) {
-    let quot = x / y;
-    let rem = x % y;
-    (quot, rem)
-}
-
 
 pub struct Frames<'a> {
     length: PacketLength<'a>,

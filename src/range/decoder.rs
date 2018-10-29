@@ -4,6 +4,7 @@ use std::cmp::min;
 pub struct Decoder<'a> {
     buffer: &'a [u8],
     current: u8,
+    bits_read: usize,
     buffer_raw: &'a [u8],
     cache_raw: u32,
     cache_raw_len: usize,
@@ -18,6 +19,7 @@ impl<'a> Decoder<'a> {
         let mut val = Self {
             buffer,
             current,
+            bits_read: 9,
             buffer_raw: buffer,
             cache_raw: 0,
             cache_raw_len: 0,
@@ -29,21 +31,21 @@ impl<'a> Decoder<'a> {
         val
     }
 
-    pub fn decode(&mut self, total: u16) -> u16 {
-        self.scale_cache = self.range / u32::from(total);
-        total - min(self.value / self.scale_cache + 1, u32::from(total)) as u16
+    pub fn decode(&mut self, total: u32) -> u32 {
+        self.scale_cache = self.range / total;
+        total - min(self.value / self.scale_cache + 1, total)
     }
 
-    pub fn decode_bin(&mut self, total_bits: u16) -> u16 {
+    pub fn decode_bin(&mut self, total_bits: u8) -> u32 {
         self.scale_cache = self.range>>total_bits;
         if 1<<total_bits >= self.value / self.scale_cache + 1 {
-            (1<<total_bits) - (self.value / self.scale_cache + 1) as u16
+            (1<<total_bits) - (self.value / self.scale_cache + 1)
         } else {
             0
         }
     }
 
-    pub fn decode_bit_logp(&mut self, logp: u16) -> u16 {
+    pub fn decode_bit_logp(&mut self, logp: u16) -> bool {
         let scale = self.range>>logp;
         let res = self.value < scale;
         if res {
@@ -53,10 +55,10 @@ impl<'a> Decoder<'a> {
             self.range -= scale;
         }
         self.normalize();
-        res as u16
+        res
     }
 
-    pub fn decode_icdf_old(&mut self, table: &[u8], total_bits: u16) -> u16 {
+    pub fn decode_icdf_old(&mut self, table: &[u8], total_bits: u8) -> u16 {
         let mut res = 0;
         let mut range = self.range;
         let scale = self.range>>total_bits;
@@ -73,22 +75,24 @@ impl<'a> Decoder<'a> {
         res
     }
 
-    pub fn decode_icdf(&mut self, table: &[u8], total_bits: u16) -> u16 {
+    pub fn decode_icdf(&mut self, table: &[u8], total_bits: u8) -> usize {
         let scale = self.range>>total_bits;
         let mut new_range = scale * table[0] as u32;
         let mut res = 1;
         while self.value < new_range {
             self.range = new_range;
-            new_range = scale * table[res as usize] as u32;
+            new_range = scale * table[res] as u32;
             res += 1;
         }
         self.value -= new_range;
         self.range -= new_range;
+        self.normalize();
         res
     }
 
     pub fn decode_bits(&mut self, bits: usize) -> u32 {
         debug_assert!(bits <= 25);
+        self.bits_read += bits;
         let amount_bytes = bits / 8 + 1;
         self.cache_raw |= split_last(&mut self.buffer_raw, amount_bytes)<<self.cache_raw_len;
         self.cache_raw_len += bits;
@@ -101,14 +105,14 @@ impl<'a> Decoder<'a> {
         assert!(total>1);
         let total_bits = ilog(total-1);
         if total_bits <= 8 {
-            let dec = self.decode(total as u16);
-            self.update(dec, dec + 1, total as u16);
+            let dec = self.decode(total);
+            self.update(dec as u16, (dec + 1) as u16, total as u16);
             dec as u32
         } else {
             let upper = ((total - 1)>>(total_bits - 8)) + 1;
-            let dec = self.decode(upper as u16);
-            self.update(dec, dec + 1, upper as u16);
-            let val = (dec as u32)<<(total_bits - 8) | self.decode_bits((total_bits - 8) as usize);
+            let dec = self.decode(upper);
+            self.update(dec as u16, (dec + 1) as u16, upper as u16);
+            let val = dec<<(total_bits - 8) | self.decode_bits((total_bits - 8) as usize);
             min(val, total - 1) //TODO: Packet loss concealment
         }
     }
@@ -128,9 +132,40 @@ impl<'a> Decoder<'a> {
             self.range <<= 8;
             let mut sym = self.current<<7;
             self.current = split_first(&mut self.buffer);
+            self.bits_read += 8;
             sym |= self.current>>1;
             self.value = ((self.value<<8) + u32::from(!sym)) & 0x7FFF_FFFF
         }
+    }
+
+    pub fn tell(&self) -> usize {
+        self.bits_read - ilog(self.range) as usize
+    }
+
+    pub fn tell_frac(&self) -> usize {
+        let mut range_bits = ilog(self.range);
+        let mut range_q15 = self.range>>(range_bits-16);
+        for _ in 0..3 {
+            range_q15 = range_q15.pow(2) >> 15;
+            let bit = range_q15>>16;
+            range_bits = (range_bits<<1) | bit;
+            range_q15>>=bit;
+        }
+        (self.bits_read<<3) - range_bits as usize
+    }
+
+    pub fn tell_frac_fast(&self) -> usize {
+        const CORRECTION: [u32; 8] = [
+            35733, 38967, 42495, 46340,
+            50535, 55109, 60097, 65535
+        ];
+
+        let mut range_bits = ilog(self.range);
+        let range_q15 = self.range>>(range_bits-16);
+        let mut bit = (range_q15>>12)-8;
+        bit += (range_q15>CORRECTION[bit as usize]) as u32;
+        range_bits = (range_bits<<3)+bit;
+        (self.bits_read<<3) - range_bits as usize
     }
 }
 

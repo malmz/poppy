@@ -9,6 +9,7 @@ repository = "https://github.com/Malmz/poppy"
 
 [dependencies]
 hound = "3.4.0"
+num-traits = "0.2.5"
 
 [dependencies.opus]
 path = "../opus"

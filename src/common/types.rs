@@ -1,9 +1,7 @@
-
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Channels {
-    Mono,
-    Stereo,
+    Mono = 1,
+    Stereo = 2,
 }
 
 
