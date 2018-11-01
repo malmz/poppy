@@ -1,12 +1,10 @@
-extern crate num_traits;
-
 pub mod decoder;
 pub mod encoder;
 pub mod common;
 pub mod packet;
 pub mod range;
 
-#[cfg(test)] extern crate opus;
+#[cfg(test)] extern crate opus_sys as opus;
 #[cfg(test)] extern crate hound;
 
 #[cfg(test)]
