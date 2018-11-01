@@ -120,7 +120,7 @@ fn frame_type(rc: &mut range::Decoder, active: bool) -> FrameType {
 
 fn subframe_gain(rc: &mut range::Decoder, signal_type: SignalType, subframe_count: u8, prev_log_gain: Option<u8>, independant: bool) -> [u8; 4] {
     let mut gain = [0u8; 4];
-    let mut log_gain;
+    let mut log_gain = 0;
     if independant {
         let table = match signal_type {
             SignalType::Inactive => &tables::icdf::SUBFRAME_GAIN.0,
